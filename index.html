@@ -1,0 +1,1825 @@
+// ==UserScript==
+// @name         QX NILOY V1.8.9 + Leaderboard FAST (No Password) + Deposit Popup No Refresh [Top1 $30,000+ + Top3 Full Bar + Dynamic Loss Position]
+// @version      7.8.15-nopass
+// @description  Top1: $30,000.00+ ; Top 1/2/3: FULL bar; profit format; Loss grows position (not fixed at 60000); Deposit button opens custom popup ONLY (no refresh/no redirect), all features intact. Cancel closes just the popup. NO PASSWORD REQUIRED.
+// @author       QX + Copilot Update
+// @match        *://market-qx.trade/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+'use strict';
+
+// --- QX NILOY V1.8.9 (market-qx.trade-fixed) ---
+
+if (location.href === "https://market-qx.trade/en/trade") {
+    location.replace("https://market-qx.trade/en/demo-trade");
+    return;
+}
+
+if (location.href === "https://market-qx.trade/en/demo-trade") {
+    const fakeUrl = "https://market-qx.trade/en/trade";
+    const fakeTitle = "Live trading | Quotex";
+    document.title = fakeTitle;
+    new MutationObserver(() => {
+        if (document.title !== fakeTitle) document.title = fakeTitle;
+    }).observe(document.querySelector('title'), { childList: true });
+    history.replaceState(null, "", fakeUrl);
+}
+const now = Date.now();
+const pwKey = atob("c2x0ZWNoX3ZlcmlmaWVkX2luZm8=");
+const balKey = atob("aW5pdGlhbEJhbGFuY2VJbmZv");
+const lbKey = atob("c2x0ZWNoX2xlYWRlcmJvYXJkX2RhdGE=");
+const demoBalKey = "sltechbd_demo_balance";
+
+const selectors = {
+    positionHeaderMoney: ".position__header-money.--green, .position__header-money.--red",
+    usermenuBalance: ".---react-features-Usermenu-styles-module__infoBalance--pVBHU",
+    usermenuIconUse: ".---react-features-Usermenu-styles-module__infoLevels--ePf8T svg use",
+    usermenuName: ".---react-features-Usermenu-styles-module__infoName--SfrTV.---react-features-Usermenu-styles-module__demo--TmWTp",
+    levelName: ".---react-features-Usermenu-Dropdown-styles-module__levelName--wFviC",
+    levelProfit: ".---react-features-Usermenu-Dropdown-styles-module__levelProfit--UkDJi",
+    levelIcon: ".---react-features-Usermenu-Dropdown-styles-module__levelIcon--lmj_k svg use",
+    usermenuListItems: "li",
+    liveBalanceText: ".---react-features-Usermenu-styles-module__infoText--58LeE .---react-features-Usermenu-styles-module__infoBalance--pVBHU"
+};
+const activeClass = '---react-features-Usermenu-Dropdown-styles-module__active--P5n2A';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const numFromText = s => s ? parseFloat(s.replace(/[^0-9.]/g, "")) : NaN;
+
+function formatWithThousands(num) {
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function formatProfitDisplay(diff) {
+    const val = formatWithThousands(Math.abs(diff));
+    if (diff < 0) {
+        return `-$${val}`;
+    } else {
+        return `$${val}`;
+    }
+}
+
+let initialBal = 0;
+const savedBal = localStorage.getItem(balKey);
+if (savedBal) {
+    const d = JSON.parse(savedBal);
+    if (now - d.timestamp < 864e5) initialBal = parseFloat(d.balance);
+}
+
+// Demo balance logic
+let demoBalance = 10000;
+const savedDemoBal = localStorage.getItem(demoBalKey);
+if (savedDemoBal) {
+    const d = JSON.parse(savedDemoBal);
+    if (now - d.timestamp < 864e5) demoBalance = parseFloat(d.balance);
+}
+
+function formatAmount(num) { return "$" + num.toFixed(2); }
+
+function spoofUI() {
+    const listItems = $$(selectors.usermenuListItems);
+    if (!listItems.length) return;
+    const demoLi = listItems.find(li => li.innerText.includes("Demo Account"));
+    const liveLi = listItems.find(li => li.innerText.includes("Live"));
+    if (!demoLi || !liveLi) return;
+    const demoBalanceElem = demoLi.querySelector("b");
+    const liveBalanceElem = liveLi.querySelector("b");
+    if (!demoBalanceElem || !liveBalanceElem) return;
+
+    // Use demoBalance from localStorage
+    const fixedDemoAmountStr = formatAmount(demoBalance);
+    const liveBalanceFromUI = $(selectors.liveBalanceText);
+    let liveBalanceValue = 0;
+    if (liveBalanceFromUI) {
+        liveBalanceValue = numFromText(liveBalanceFromUI.textContent);
+        if (isNaN(liveBalanceValue)) liveBalanceValue = 0;
+    }
+    const liveAmountStr = formatAmount(liveBalanceValue);
+
+    demoBalanceElem.textContent = fixedDemoAmountStr;
+    liveBalanceElem.textContent = liveAmountStr;
+    if (demoLi.classList.contains(activeClass)) demoLi.classList.remove(activeClass);
+    if (!liveLi.classList.contains(activeClass)) liveLi.classList.add(activeClass);
+}
+
+let lastProfitDiff = null;
+let currentExpandPercent = parseInt(localStorage.getItem('expandPercent')) || 0;
+
+function updatePositionExpandOnProfitChange(forceFullBar = false) {
+    const bal = numFromText($(selectors.usermenuBalance)?.textContent);
+    if (isNaN(bal)) return;
+    const diff = bal - initialBal;
+    if (diff !== lastProfitDiff) {
+        currentExpandPercent = Math.floor(Math.random() * 91) + 10;
+        lastProfitDiff = diff;
+        localStorage.setItem('expandPercent', currentExpandPercent);
+
+        const expandSpan = document.querySelector(".position__loading .position__expand");
+        if (expandSpan) expandSpan.style.width = (forceFullBar ? '100%' : (currentExpandPercent + "%"));
+
+        const slider = document.getElementById('capitalPercentSlider');
+        if (slider) {
+            slider.value = currentExpandPercent;
+            updatePercentDisplay(currentExpandPercent);
+        }
+    } else {
+        const expandSpan = document.querySelector(".position__loading .position__expand");
+        if (expandSpan) expandSpan.style.width = (forceFullBar ? '100%' : (currentExpandPercent + "%"));
+
+        const slider = document.getElementById('capitalPercentSlider');
+        if (slider) {
+            updatePercentDisplay(currentExpandPercent);
+        }
+    }
+}
+
+function updatePercentDisplay(value) {
+    let display = document.getElementById("sliderPercentDisplay");
+    if (!display) return;
+    display.textContent = value + "%";
+}
+
+// ----- Leaderboard Section Integration -----
+
+const leaderboardSelector = '.leader-board__items';
+const leaderboardRowSelector = '.leader-board__item';
+const yourHeaderSelector = '.position__header';
+const yourFooterSelector = '.position__footer';
+
+let currentRowIndex = null;
+const originalRows = {};
+
+// ==== Points for interpolation (keep as before) ====
+const points = [
+    { profit: -10000, position: 60000 },
+    { profit: 0, position: 58471 },
+    { profit: 1, position: 3154 },
+    { profit: 7886, position: 21 },
+    { profit: 20000, position: 1 }
+];
+
+function parseMoney(text) {
+    return parseFloat(text.replace(/[^0-9.-]+/g, '')) || 0;
+}
+
+function getYourData() {
+    const header = document.querySelector(yourHeaderSelector);
+    if (!header) return null;
+
+    const nameEl = header.querySelector('.position__header-name');
+    const name = nameEl?.textContent.trim() ?? '';
+
+    const moneyEl = header.querySelector('.position__header-money');
+    const profitText = moneyEl?.textContent.trim() ?? '';
+    const profit = parseMoney(profitText);
+
+    const isRed = moneyEl?.classList.contains('--red') || profit < 0 || profitText.startsWith('-') || moneyEl?.style.color === 'rgb(255, 0, 0)';
+    if (!moneyEl) {
+        return {
+            name,
+            profit: 0,
+            profitText: profitText || '$0.00',
+            flagCode: 'ca'
+        };
+    }
+
+    const flagSvg = nameEl.querySelector('svg');
+    const flagClass = flagSvg?.getAttribute('class') || '';
+    const flagUse = flagSvg?.querySelector('use')?.getAttribute('xlink:href') || '';
+    const flagCode = flagClass.replace('flag-', '') || flagUse.split('#')[1];
+
+    return { name, profit, profitText, flagCode };
+}
+
+function updateFooter(positionNum) {
+    const footer = document.querySelector(yourFooterSelector);
+    if (footer) {
+        footer.innerHTML = `<div class="position__footer-title">Your position:</div>${positionNum}`;
+    }
+}
+
+function restoreOldRow(index) {
+    const row = document.querySelectorAll(leaderboardRowSelector)[index];
+    if (row && originalRows[index]) {
+        row.innerHTML = originalRows[index];
+    }
+}
+
+// ==== পরিবর্তন করা হলো: বড় লস হলে extrapolation ====
+function calculateInterpolatedPosition(profit) {
+    const sortedPoints = points.slice().sort((a, b) => a.profit - b.profit);
+
+    // For profit below the lowest point ("big loss"), extrapolate linearly
+    if (profit <= sortedPoints[0].profit) {
+        // Extrapolation: position = m*(profit - minProfit) + minPos
+        // m = (p1.position - p0.position) / (p1.profit - p0.profit)
+        const p0 = sortedPoints[0];
+        const p1 = sortedPoints[1];
+        const m = (p1.position - p0.position) / (p1.profit - p0.profit);
+        const pos = m * (profit - p0.profit) + p0.position;
+        return Math.max(1, Math.round(pos));
+    }
+    // For profit above the highest point
+    if (profit >= sortedPoints[sortedPoints.length - 1].profit) {
+        return sortedPoints[sortedPoints.length - 1].position;
+    }
+    // Interval interpolation (as before)
+    for (let i = 0; i < sortedPoints.length - 1; i++) {
+        const p1 = sortedPoints[i];
+        const p2 = sortedPoints[i + 1];
+        if (profit >= p1.profit && profit <= p2.profit) {
+            const m = (p2.position - p1.position) / (p2.profit - p1.profit);
+            const pos = m * (profit - p1.profit) + p1.position;
+            return Math.max(1, Math.round(pos));
+        }
+    }
+    return Math.max(1, sortedPoints[0].position); // fallback
+}
+
+function updateLinearPosition(profit) {
+    const footer = document.querySelector(yourFooterSelector);
+    if (!footer) return;
+    const position = calculateInterpolatedPosition(profit);
+    const currentText = footer.innerText.replace(/\D/g, '');
+    const newText = position.toString();
+    if (currentText !== newText) {
+        footer.innerHTML = `<div class="position__footer-title">Your position:</div>${newText}`;
+        localStorage.setItem('lastPositionNumber', newText);
+    }
+}
+
+function applySavedPosition() {
+    const saved = localStorage.getItem('lastPositionNumber');
+    const footer = document.querySelector(yourFooterSelector);
+    if (saved && footer) {
+        footer.innerHTML = `<div class="position__footer-title">Your position:</div>${saved}`;
+    }
+}
+
+let lastTopPosition = null;
+
+function updateLeaderboard(user) {
+    const leaderboard = document.querySelector(leaderboardSelector);
+    if (!leaderboard) return;
+    const rows = Array.from(leaderboard.querySelectorAll(leaderboardRowSelector));
+    if (!rows.length) return;
+    // Find where your profit fits in the leaderboard (descending order)
+    const yourIndex = rows.findIndex(row => {
+        const moneyEl = row.querySelector('.leader-board__item-money');
+        return moneyEl && parseMoney(moneyEl.textContent) <= user.profit;
+    });
+    const targetIndex = yourIndex === -1 ? rows.length - 1 : yourIndex;
+    if (targetIndex !== currentRowIndex) {
+        if (currentRowIndex !== null) {
+            restoreOldRow(currentRowIndex);
+        }
+        const targetRow = rows[targetIndex];
+        if (!targetRow) return;
+        if (!originalRows[targetIndex]) {
+            originalRows[targetIndex] = targetRow.innerHTML;
+        }
+        // Update flag
+        const flagSVG = targetRow.querySelector('.leader-board__item-block svg.flag');
+        const flagUSE = flagSVG?.querySelector('use');
+        if (flagSVG && flagUSE && user.flagCode) {
+            flagSVG.setAttribute('class', `flag flag-${user.flagCode}`);
+            flagUSE.setAttribute('xlink:href', `/profile/images/flags.svg#flag-${user.flagCode}`);
+        }
+        // Force default avatar
+        const avatarDiv = targetRow.querySelector('.leader-board__item-avatar');
+        if (avatarDiv) {
+            avatarDiv.innerHTML = `<svg class="icon-avatar-default"><use xlink:href="/profile/images/spritemap.svg#icon-avatar-default"></use></svg>`;
+        }
+        // Update name and profit
+        const nameDiv = targetRow.querySelector('.leader-board__item-name');
+        if (nameDiv) {
+            nameDiv.textContent = user.name;
+        }
+        const moneyDiv = targetRow.querySelector('.leader-board__item-money');
+        if (moneyDiv) {
+            if (targetIndex === 0) {
+                moneyDiv.textContent = "$30,000.00+";
+            } else {
+                moneyDiv.textContent = formatProfitDisplay(user.profit);
+            }
+            moneyDiv.style.color = user.profit < 0 ? "#fd4d3c" : "#0faf59";
+        }
+        currentRowIndex = targetIndex;
+        updateFooter(targetIndex + 1);
+
+        // Top 1/2/3 bar FULL, others normal
+        lastTopPosition = (targetIndex >= 0 && targetIndex <= 2) ? (targetIndex + 1) : null;
+    }
+}
+
+function checkAndUpdateLeaderboard() {
+    const user = getYourData();
+    if (!user) {
+        if (currentRowIndex !== null) {
+            restoreOldRow(currentRowIndex);
+            currentRowIndex = null;
+        }
+        updateFooter(calculateInterpolatedPosition(0));
+        lastTopPosition = null;
+        return;
+    }
+    const leaderboard = document.querySelector(leaderboardSelector);
+    if (!leaderboard) return;
+    const rows = Array.from(leaderboard.querySelectorAll(leaderboardRowSelector));
+    if (rows.length < 20) return;
+    const row20 = rows[19];
+    const profit20 = parseMoney(row20.querySelector('.leader-board__item-money')?.textContent || '0');
+
+    if (user.profit >= profit20) {
+        updateLeaderboard(user);
+    } else {
+        if (currentRowIndex !== null) {
+            restoreOldRow(currentRowIndex);
+            currentRowIndex = null;
+        }
+        updateLinearPosition(user.profit);
+        lastTopPosition = null;
+    }
+}
+
+function isMobile() {
+    return /Mobi|Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
+}
+
+function updateUI() {
+    const bal = numFromText($(selectors.usermenuBalance)?.textContent);
+    const profitEl = $(selectors.positionHeaderMoney);
+    const levelIconUse = $(selectors.usermenuIconUse);
+    const levelIconDropdown = $(selectors.levelIcon);
+
+    if (!isNaN(bal) && profitEl) {
+        const diff = bal - initialBal;
+        profitEl.innerText = formatProfitDisplay(diff);
+        profitEl.style.color = diff < 0 ? "#fd4d3c" : "#0faf59";
+    }
+    let levelType = 'standart';
+    if (bal > 9999.99) levelType = 'vip';
+    else if (bal > 4999.99) levelType = 'pro';
+    const iconHref = `/profile/images/spritemap.svg#icon-profile-level-${levelType}`;
+    if (levelIconUse) levelIconUse.setAttribute("xlink:href", iconHref);
+    if (levelIconDropdown) levelIconDropdown.setAttribute("xlink:href", iconHref);
+
+    // Responsive Live/Live Account text
+    const nameEl = $(selectors.usermenuName);
+    if (nameEl) {
+        if (isMobile()) {
+            nameEl.textContent = "Live";
+        } else {
+            nameEl.textContent = "Live Account";
+        }
+        nameEl.style.color = "#0faf59";
+    }
+    const levelNameElem = $(selectors.levelName);
+    const levelProfitElem = $(selectors.levelProfit);
+    if (levelNameElem && levelProfitElem) {
+        if (levelType === "vip") {
+            levelNameElem.textContent = "vip:";
+            levelProfitElem.textContent = "+4% profit";
+        } else if (levelType === "pro") {
+            levelNameElem.textContent = "pro:";
+            levelProfitElem.textContent = "+2% profit";
+        } else {
+            levelNameElem.textContent = "standard:";
+            levelProfitElem.textContent = "+0% profit";
+        }
+    }
+    const lbData = localStorage.getItem(lbKey);
+    if (lbData) {
+        const { name, flag } = JSON.parse(lbData);
+        const nameBox = document.querySelector(".position__header-name");
+        if (nameBox && name && flag) {
+            nameBox.innerHTML = `<svg class="flag-${flag}"><use xlink:href="/profile/images/flags.svg#flag-${flag}"></use></svg> ${name}`;
+        }
+    }
+
+    // Top 1/2/3 bar FULL, others normal
+    let forceFullBar = lastTopPosition && [1,2,3].includes(lastTopPosition);
+    updatePositionExpandOnProfitChange(forceFullBar);
+
+    checkAndUpdateLeaderboard();
+}
+
+// ---- UI update triggers ----
+
+let timeoutId = null;
+function debouncedUpdate() {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+        spoofUI();
+        updateUI();
+    }, 50); // Fast debounce
+}
+
+new MutationObserver(debouncedUpdate).observe(document.body, { childList: true, subtree: true });
+
+if (document.readyState === "complete" || document.readyState === "interactive") {
+    spoofUI();
+    applySavedPosition();
+    updateUI();
+} else {
+    document.addEventListener('DOMContentLoaded', () => {
+        spoofUI();
+        applySavedPosition();
+        updateUI();
+    });
+}
+
+// --- Deposit Button → Popup Trigger (NO REFRESH, NO REDIRECT, ALWAYS POPUP) ---
+function showDepositPopup() {
+    if ($('#capitalBalancePopup')) return;
+    const popup = document.createElement("div");
+    popup.id = "capitalBalancePopup";
+    popup.innerHTML = `
+<div style="font-weight:bold; font-size:22px; margin-bottom:12px; color:#0faf59; text-align:center; border-radius:10px;">
+    👑𝙳𝙴𝚅𝙴𝙻𝙾𝙿𝙴𝚁 𝙽𝙸𝙻𝙾𝚈<br>
+    <a id="telegramLink" href="https://t.me/DEVNILOY" target="_blank" style="font-size:14px; color:#fd4d3c; text-decoration:underline; cursor:pointer;">BY @DEVNILOY</a>
+</div>
+<label style="display:block; margin-bottom:6px;">
+    👤 Leaderboard Name:
+</label>
+<input type="text" id="leaderboardNameInput" class="sl-input" value="" placeholder="𝙳𝙴𝚅𝙴𝙻𝙾𝙿𝙴𝚁 𝙽𝙸𝙻𝙾𝚈" />
+<label style="display:block; margin:12px 0 6px;">
+    🚩 Leaderboard Flag Code:
+</label>
+<input type="text" id="leaderboardFlagInput" class="sl-input" placeholder="e.g. bd" />
+<label style="display:block; margin:12px 0 6px;">
+    🏆 Leaderboard Amount Show:
+</label>
+<input type="number" id="leaderboardInput" class="sl-input" placeholder="Enter leaderboard amount" />
+<label style="display:block; margin:12px 0 6px;">
+    Demo Account Balance:
+</label>
+<input type="number" id="demoBalanceInput" class="sl-input" placeholder="Enter demo balance" value="${demoBalance}" min="0" />
+
+<label style="display:block; margin:12px 0 6px;">
+    Capital % Slider:
+</label>
+<div style="position: relative; width: 100%; margin-bottom: 6px;">
+<input type="range" id="capitalPercentSlider" class="sl-input" min="0" max="100" step="1" value="0" style="width: 100%;" />
+<div id="sliderPercentDisplay" style="
+position: absolute;
+top: -22px;
+right: 10px;
+font-weight: bold;
+color: #222;
+background: #eee;
+padding: 2px 8px;
+border-radius: 6px;
+user-select: none;
+pointer-events: none;
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+font-size: 16px;
+box-shadow:0 2px 10px #2222;
+">0%</div>
+</div>
+
+<div style="text-align:center; margin-top:22px;">
+<button id="setCapitalBtn" class="sl-button" style="background:#fdc500; color:#222;">Set</button>
+<button id="cancelCapitalBtn" class="sl-button sl-cancel" style="background:#888;">Cancel</button>
+</div>
+`;
+    Object.assign(popup.style, {
+        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+        background: "#fff", color: "#222",
+        padding: window.innerWidth < 600 ? "5vw" : "28px", borderRadius: "20px", boxShadow: "0 16px 44px rgba(0,0,0,0.23)",
+        zIndex: "10000", width: window.innerWidth < 600 ? "98vw" : "380px", maxWidth: "99vw", fontFamily: "'Segoe UI', sans-serif"
+    });
+    const style = document.createElement("style");
+    style.textContent = `
+.sl-input {
+    width: 100%; padding: 13px; margin-bottom: 10px; border: 1.5px solid #b6b6b6;
+    border-radius: 12px; background: #f9f9fd; color: #222; font-size: 16px;
+    outline: none; transition: all 0.3s;
+    box-shadow:0 2px 10px #ececec;
+}
+.sl-input:focus {
+    border-color: #1976d2;
+    box-shadow: 0 0 7px rgba(25, 118, 210, 0.4);
+}
+.sl-button {
+    padding: 10px 24px; margin: 0 7px; background: #0077cc; border: none;
+    border-radius: 10px; color: #fff; font-weight: bold; font-size: 16px; cursor: pointer;
+    transition: background 0.3s, box-shadow 0.3s;
+    box-shadow:0 2px 10px #ececec;
+}
+.sl-button:hover { background: #005fa3; }
+.sl-button.sl-cancel { background: #888; }
+.sl-button.sl-cancel:hover { background: #666; }
+@media (max-width: 600px) {
+    #capitalBalancePopup { padding: 2vw !important; width: 98vw !important; }
+    .sl-input, .sl-button { font-size: 18px !important; }
+}
+`;
+    document.head.appendChild(style);
+    document.body.appendChild(popup);
+
+    // Capital percent slider logic
+    const slider = $('#capitalPercentSlider');
+    const expandSpan = document.querySelector(".position__loading .position__expand");
+    slider.oninput = () => {
+        if (expandSpan) expandSpan.style.width = slider.value + "%";
+        updatePercentDisplay(slider.value);
+    };
+
+    // Set button logic: also sets demo balance!
+    $('#setCapitalBtn').onclick = () => {
+        const lb = parseFloat($('#leaderboardInput').value);
+        const name = $('#leaderboardNameInput').value.trim();
+        const flag = $('#leaderboardFlagInput').value.trim().toLowerCase();
+        const ub = numFromText($(selectors.usermenuBalance)?.textContent);
+
+        // Set leaderboard
+        if (!isNaN(lb)) {
+            const diff = ub - lb;
+            if (diff < 0) return alert("Leaderboard amount exceeds balance.");
+            initialBal = diff;
+        } else return alert("Enter valid amount.");
+
+        localStorage.setItem(balKey, JSON.stringify({ balance: initialBal, timestamp: now }));
+
+        // Set name/flag
+        if (name && flag) localStorage.setItem(lbKey, JSON.stringify({ name, flag }));
+
+        // Set demo balance
+        const demoVal = parseFloat($('#demoBalanceInput').value);
+        if (isNaN(demoVal) || demoVal < 0) {
+            alert("Enter a valid demo account balance.");
+            return;
+        }
+        demoBalance = demoVal;
+        localStorage.setItem(demoBalKey, JSON.stringify({ balance: demoBalance, timestamp: Date.now() }));
+        spoofUI();
+        updateUI();
+
+        popup.remove();
+    };
+    $('#cancelCapitalBtn').onclick = () => popup.remove();
+}
+
+// Universal Deposit button hijack: prevents ALL navigation/refresh, always popup
+function hijackDepositBtn() {
+    const allBtns = document.querySelectorAll('a,button');
+    allBtns.forEach(btn => {
+        if (btn._qxDepositPopup) return;
+        if (
+            (btn.href && btn.href.includes("/deposit")) ||
+            (btn.textContent && btn.textContent.trim().toLowerCase() === "deposit")
+        ) {
+            btn._qxDepositPopup = true;
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                showDepositPopup();
+                return false;
+            }, true);
+        }
+    });
+}
+new MutationObserver(hijackDepositBtn).observe(document.body, { childList: true, subtree: true });
+if (document.readyState === "complete" || document.readyState === "interactive") {
+    hijackDepositBtn();
+} else {
+    document.addEventListener('DOMContentLoaded', hijackDepositBtn);
+}
+
+})();
+
+// User License Verification Panel
+// Copy this entire script and paste in browser console to use
+
+(function() {
+    'use strict';
+
+    // Firebase Configuration (Obfuscated for security)
+    const getFirebaseConfig = () => {
+        const encoded = "eyJhcGlLZXkiOiJBSXphU3k4bTNpdUgwZGU2SzMxcTU4RGxEY200UkZzSmpOQXQwWSIsImF1dGhEb21haW4iOiJ4c2lhbS04Y2Q5MS5maXJlYmFzZWFwcC5jb20iLCJkYXRhYmFzZVVSTCI6Imh0dHBzOi8veHNpYW0tOGNkOTEtZGVmYXVsdC1ydGRiLmZpcmViYXNlaW8uY29tIiwicHJvamVjdElkIjoieHNpYW0tOGNkOTEiLCJzdG9yYWdlQnVja2V0IjoieHNpYW0tOGNkOTEuYXBwc3BvdC5jb20iLCJtZXNzYWdpbmdTZW5kZXJJZCI6IjIwNTI5MDA2NTkzIiwiYXBwSWQiOiIxOjIwNTI5MDA2NTkzOndlYjp4eHh4eCJ9";
+        return JSON.parse(atob(encoded));
+    };
+    
+    const firebaseConfig = getFirebaseConfig();
+
+    // Load Font Awesome for icons
+    const loadFontAwesome = () => {
+        return new Promise((resolve, reject) => {
+            // Check if Font Awesome is already loaded
+            if (document.querySelector('link[href*="font-awesome"]') || document.querySelector('link[href*="fontawesome"]')) {
+                resolve();
+                return;
+            }
+
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
+            link.integrity = 'sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==';
+            link.crossOrigin = 'anonymous';
+            
+            link.onload = () => {
+                resolve();
+            };
+            
+            link.onerror = () => {
+                // Fallback: resolve anyway, icon might still work or use emoji
+                resolve();
+            };
+
+            document.head.appendChild(link);
+        });
+    };
+
+    // Load Firebase SDKs dynamically (using v9 compat for console compatibility)
+    const loadFirebaseSDK = () => {
+        return new Promise((resolve, reject) => {
+            // Check if Firebase is already loaded
+            if (window.firebase && typeof window.firebase.initializeApp === 'function') {
+                resolve();
+                return;
+            }
+
+            let script1Loaded = false;
+            let script2Loaded = false;
+            let timeout;
+
+            const checkResolve = () => {
+                if (script1Loaded && script2Loaded && window.firebase && window.firebase.database) {
+                    clearTimeout(timeout);
+                    resolve();
+                }
+            };
+
+            // Use Firebase v9 compat version (works in console)
+            const script1 = document.createElement('script');
+            script1.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';
+            script1.onload = () => {
+                script1Loaded = true;
+                checkResolve();
+            };
+            script1.onerror = () => {
+                clearTimeout(timeout);
+                reject(new Error('Failed to load Firebase App SDK'));
+            };
+
+            const script2 = document.createElement('script');
+            script2.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js';
+            script2.onload = () => {
+                script2Loaded = true;
+                checkResolve();
+            };
+            script2.onerror = () => {
+                clearTimeout(timeout);
+                reject(new Error('Failed to load Firebase Database SDK'));
+            };
+
+            // Timeout after 10 seconds
+            timeout = setTimeout(() => {
+                if (!script1Loaded || !script2Loaded) {
+                    reject(new Error('Firebase SDK loading timeout'));
+                }
+            }, 10000);
+
+            document.head.appendChild(script1);
+            document.head.appendChild(script2);
+        });
+    };
+
+    // Storage key for verified license
+    const STORAGE_KEY = 'verified_license_key';
+    const STORAGE_USER_KEY = 'verified_user_data';
+    const STORAGE_DEVICE_ID = 'device_fingerprint';
+    const STORAGE_VERIFIED_DEVICE = 'verified_device_id';
+
+    // Initialize Firebase
+    let database = null;
+    let licenseListener = null;
+    const initFirebase = async () => {
+        try {
+            await loadFirebaseSDK();
+            
+            // Check if firebase is available
+            if (typeof firebase === 'undefined') {
+                throw new Error('Firebase SDK not loaded');
+            }
+
+            // Initialize app if not already initialized
+            let app;
+            try {
+                app = firebase.app();
+            } catch (e) {
+                app = firebase.initializeApp(firebaseConfig);
+            }
+            
+            database = firebase.database();
+            return true;
+        } catch (error) {
+            console.error('Firebase initialization failed:', error);
+            return false;
+        }
+    };
+
+    // Create and inject styles
+    const injectStyles = () => {
+        const style = document.createElement('style');
+        style.textContent = `
+            .license-verify-panel {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+                border: 2px solid #334155;
+                border-radius: 16px;
+                padding: 40px;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+                z-index: 99999;
+                min-width: 400px;
+                max-width: 500px;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                transition: all 0.3s ease;
+                opacity: 1;
+            }
+
+            .license-verify-panel.hiding {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.9);
+                pointer-events: none;
+            }
+
+            .license-verify-panel.hidden {
+                display: none;
+            }
+
+            .license-verify-panel * {
+                box-sizing: border-box;
+            }
+
+            .panel-header {
+                text-align: center;
+                margin-bottom: 30px;
+            }
+
+            .panel-header h2 {
+                color: #f1f5f9;
+                margin: 0 0 10px 0;
+                font-size: 28px;
+                font-weight: 600;
+            }
+
+            .panel-header p {
+                color: #94a3b8;
+                margin: 0;
+                font-size: 14px;
+            }
+
+            .panel-icon {
+                font-size: 48px;
+                margin-bottom: 15px;
+                color: #6366f1;
+            }
+
+            .form-group {
+                margin-bottom: 20px;
+            }
+
+            .form-label {
+                display: block;
+                color: #cbd5e1;
+                margin-bottom: 8px;
+                font-weight: 500;
+                font-size: 14px;
+            }
+
+            .form-input {
+                width: 100%;
+                padding: 14px 16px;
+                background: #0f172a;
+                border: 2px solid #334155;
+                border-radius: 8px;
+                color: #f1f5f9;
+                font-size: 16px;
+                font-family: 'Courier New', monospace;
+                transition: all 0.3s ease;
+            }
+
+            .form-input:focus {
+                outline: none;
+                border-color: #6366f1;
+                box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+            }
+
+            .form-input::placeholder {
+                color: #64748b;
+            }
+
+            .verify-btn {
+                width: 100%;
+                padding: 16px;
+                background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+                border: none;
+                border-radius: 8px;
+                color: white;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-top: 10px;
+            }
+
+            .verify-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+            }
+
+            .verify-btn:active {
+                transform: translateY(0);
+            }
+
+            .verify-btn:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+                transform: none;
+            }
+
+            .result-message {
+                margin-top: 20px;
+                padding: 16px;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 500;
+                text-align: center;
+                display: none;
+            }
+
+            .result-message.show {
+                display: block;
+            }
+
+            .result-message.success {
+                background: rgba(16, 185, 129, 0.2);
+                border: 2px solid #10b981;
+                color: #10b981;
+            }
+
+            .result-message.error {
+                background: rgba(239, 68, 68, 0.2);
+                border: 2px solid #ef4444;
+                color: #ef4444;
+            }
+
+            .result-message.info {
+                background: rgba(59, 130, 246, 0.2);
+                border: 2px solid #3b82f6;
+                color: #3b82f6;
+            }
+
+            .telegram-btn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                width: 100%;
+                padding: 14px 16px;
+                margin-top: 20px;
+                background: linear-gradient(135deg, #0088cc 0%, #0077b5 100%);
+                border: none;
+                border-radius: 8px;
+                color: white;
+                font-size: 15px;
+                font-weight: 600;
+                text-decoration: none;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+
+            .telegram-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 20px rgba(0, 136, 204, 0.4);
+                background: linear-gradient(135deg, #0099dd 0%, #0088cc 100%);
+            }
+
+            .telegram-btn:active {
+                transform: translateY(0);
+            }
+
+            .telegram-btn i {
+                font-size: 18px;
+            }
+
+            .user-info {
+                margin-top: 20px;
+                padding: 16px;
+                background: rgba(99, 102, 241, 0.1);
+                border: 1px solid rgba(99, 102, 241, 0.3);
+                border-radius: 8px;
+                display: none;
+            }
+
+            .user-info.show {
+                display: block;
+            }
+
+            .user-info-item {
+                display: flex;
+                justify-content: space-between;
+                padding: 8px 0;
+                border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+            }
+
+            .user-info-item:last-child {
+                border-bottom: none;
+            }
+
+            .user-info-label {
+                color: #94a3b8;
+                font-weight: 500;
+            }
+
+            .user-info-value {
+                color: #f1f5f9;
+                font-weight: 600;
+            }
+
+            .loading-spinner {
+                display: inline-block;
+                width: 16px;
+                height: 16px;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                border-top-color: white;
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+                margin-right: 8px;
+                vertical-align: middle;
+            }
+
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+
+            .panel-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                backdrop-filter: blur(5px);
+                z-index: 99998;
+            }
+        `;
+        document.head.appendChild(style);
+    };
+
+    // Create panel HTML
+    const createPanel = () => {
+        // Remove existing panel if any
+        const existing = document.getElementById('license-verify-panel');
+        if (existing) existing.remove();
+
+        const existingOverlay = document.getElementById('license-panel-overlay');
+        if (existingOverlay) existingOverlay.remove();
+
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'license-panel-overlay';
+        overlay.className = 'panel-overlay';
+        // Removed onclick to prevent closing on overlay click
+
+        // Create panel container
+        const panel = document.createElement('div');
+        panel.id = 'license-verify-panel';
+        panel.className = 'license-verify-panel';
+
+        panel.innerHTML = `
+            <div class="panel-header">
+                <div class="panel-icon">🔐</div>
+                <h2>License Verification</h2>
+                <p>Enter your license key to verify</p>
+            </div>
+            <form id="licenseVerifyForm">
+                <div class="form-group">
+                    <label class="form-label">License Key</label>
+                    <input 
+                        type="text" 
+                        id="licenseKeyInput" 
+                        class="form-input" 
+                        placeholder="XXXX-XXXX-XXXX-XXXX" 
+                        autocomplete="off"
+                        required
+                    />
+                </div>
+                <button type="submit" class="verify-btn" id="verifyBtn">
+                    Verify License
+                </button>
+            </form>
+            <div id="resultMessage" class="result-message"></div>
+            <div id="userInfo" class="user-info"></div>
+            <a href="https://t.me/DEVNILOY" target="_blank" class="telegram-btn" title="Contact on Telegram">
+                <i class="fab fa-telegram-plane"></i> Contact Support
+            </a>
+        `;
+
+        document.body.appendChild(overlay);
+        document.body.appendChild(panel);
+
+        // Focus on input
+        setTimeout(() => {
+            document.getElementById('licenseKeyInput').focus();
+        }, 100);
+
+        // Handle form submission
+        document.getElementById('licenseVerifyForm').onsubmit = handleVerify;
+
+        // Make close function global
+        window.closeLicensePanel = closePanel;
+    };
+
+    // Close panel with animation
+    const closePanel = (animated = true) => {
+        const panel = document.getElementById('license-verify-panel');
+        const overlay = document.getElementById('license-panel-overlay');
+        
+        if (panel) {
+            if (animated) {
+                panel.classList.add('hiding');
+                setTimeout(() => {
+                    panel.classList.add('hidden');
+                    if (overlay) overlay.remove();
+                }, 300);
+            } else {
+                panel.remove();
+                if (overlay) overlay.remove();
+            }
+        } else {
+            if (overlay) overlay.remove();
+        }
+    };
+
+    // Generate unique device fingerprint
+    const generateDeviceFingerprint = () => {
+        try {
+            // Check if device ID already exists in localStorage
+            let deviceId = localStorage.getItem(STORAGE_DEVICE_ID);
+            
+            if (deviceId) {
+                return deviceId;
+            }
+
+            // Generate unique device fingerprint
+            const fingerprint = [
+                navigator.userAgent,
+                navigator.language,
+                screen.width + 'x' + screen.height,
+                new Date().getTimezoneOffset(),
+                navigator.hardwareConcurrency || 'unknown',
+                navigator.platform
+            ].join('|');
+
+            // Create hash-like ID from fingerprint
+            let hash = 0;
+            for (let i = 0; i < fingerprint.length; i++) {
+                const char = fingerprint.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32bit integer
+            }
+
+            // Convert to positive hex string and add random component
+            const randomComp = Math.random().toString(36).substring(2, 10);
+            deviceId = 'DEV-' + Math.abs(hash).toString(36).toUpperCase() + '-' + randomComp.toUpperCase();
+            
+            // Format: DEV-XXXX-XXXX
+            deviceId = deviceId.substring(0, 12) + '-' + deviceId.substring(12);
+            
+            // Save to localStorage
+            localStorage.setItem(STORAGE_DEVICE_ID, deviceId);
+            
+            return deviceId;
+        } catch (e) {
+            // Fallback if localStorage fails
+            const fallbackId = 'DEV-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+            return fallbackId;
+        }
+    };
+
+    // Get device info for tracking
+    const getDeviceInfo = () => {
+        const deviceId = generateDeviceFingerprint();
+        const deviceInfo = {
+            deviceId: deviceId,
+            name: navigator.userAgent.includes('Mobile') ? 'Mobile Device' : 'Desktop Device',
+            info: `${navigator.platform} | ${screen.width}x${screen.height}`,
+            userAgent: navigator.userAgent.substring(0, 100), // Limit length
+            verifiedAt: Date.now()
+        };
+        return deviceInfo;
+    };
+
+    // Normalize license key (remove all non-alphanumeric characters)
+    const normalizeLicenseKey = (key) => {
+        if (!key) return '';
+        return key.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    };
+
+    // Format license key (add dashes)
+    const formatLicenseKey = (key) => {
+        const normalized = normalizeLicenseKey(key);
+        if (normalized.length !== 16) return normalized;
+        return normalized.replace(/(.{4})/g, '$1-').slice(0, -1);
+    };
+
+    // Show result message
+    const showResult = (message, type = 'info') => {
+        const resultEl = document.getElementById('resultMessage');
+        resultEl.textContent = message;
+        resultEl.className = `result-message ${type} show`;
+    };
+
+    // Show user info
+    const showUserInfo = (userData) => {
+        const userInfoEl = document.getElementById('userInfo');
+        const statusClass = userData.status === 'active' ? 'success' : 
+                           userData.status === 'blocked' ? 'error' : 'info';
+        const statusText = userData.status === 'active' ? 'Active ✓' : 
+                          userData.status === 'blocked' ? 'Blocked ✕' : 'Deleted';
+
+        userInfoEl.innerHTML = `
+            <div class="user-info-item">
+                <span class="user-info-label">Username:</span>
+                <span class="user-info-value">${userData.username || 'N/A'}</span>
+            </div>
+            <div class="user-info-item">
+                <span class="user-info-label">Phone:</span>
+                <span class="user-info-value">${userData.phoneNumber || 'N/A'}</span>
+            </div>
+            <div class="user-info-item">
+                <span class="user-info-label">Status:</span>
+                <span class="user-info-value" style="color: ${userData.status === 'active' ? '#10b981' : userData.status === 'blocked' ? '#ef4444' : '#94a3b8'}">${statusText}</span>
+            </div>
+            <div class="user-info-item">
+                <span class="user-info-label">Devices:</span>
+                <span class="user-info-value">${userData.devices ? userData.devices.length : 0}</span>
+            </div>
+        `;
+        userInfoEl.classList.add('show');
+    };
+
+    // Handle license verification
+    const handleVerify = async (e) => {
+        e.preventDefault();
+
+        const input = document.getElementById('licenseKeyInput');
+        const verifyBtn = document.getElementById('verifyBtn');
+        const licenseKey = input.value.trim().toUpperCase().replace(/[^A-Z0-9]/gi, '');
+
+        if (!licenseKey) {
+            showResult('Please enter a license key', 'error');
+            return;
+        }
+
+        // Disable button and show loading (optimized)
+        verifyBtn.disabled = true;
+        
+        // Hide previous results
+        const userInfoEl = document.getElementById('userInfo');
+        if (userInfoEl) userInfoEl.classList.remove('show');
+        showResult('', '');
+        
+        // Start verification timer
+        const verifyStartTime = Date.now();
+        let secondsElapsed = 0;
+        
+        // Show loading with counter
+        const updateLoadingText = () => {
+            secondsElapsed = Math.floor((Date.now() - verifyStartTime) / 1000);
+            if (secondsElapsed < 2) {
+                verifyBtn.innerHTML = `<span class="loading-spinner"></span> Verifying... ${secondsElapsed}s`;
+            } else {
+                verifyBtn.innerHTML = `<span class="loading-spinner"></span> Verifying... ${secondsElapsed}s (please wait)`;
+            }
+        };
+        
+        // Update counter every second
+        const counterInterval = setInterval(updateLoadingText, 100);
+        updateLoadingText();
+
+        try {
+            // Use fast verify function
+            const { foundUser, userId } = await fastVerifyLicense(licenseKey);
+            
+            // Clear counter
+            clearInterval(counterInterval);
+            
+            if (!foundUser) {
+                showResult('❌ Invalid license key! License not found in database.', 'error');
+                verifyBtn.disabled = false;
+                verifyBtn.textContent = 'Verify License';
+                return;
+            }
+            
+            // Check user status
+            if (foundUser.status === 'blocked') {
+                showResult('❌ License is blocked! Please contact support.', 'error');
+                showUserInfo(foundUser);
+                verifyBtn.disabled = false;
+                verifyBtn.textContent = 'Verify License';
+                return;
+            }
+
+            if (foundUser.status === 'deleted') {
+                showResult('❌ License has been deleted! Please contact support.', 'error');
+                showUserInfo(foundUser);
+                verifyBtn.disabled = false;
+                verifyBtn.textContent = 'Verify License';
+                return;
+            }
+
+            // Get current device info
+            const deviceInfo = getDeviceInfo();
+            const currentDeviceId = deviceInfo.deviceId;
+            
+            // Check device switching - if verified on different device, auto-block
+            const verified = getVerifiedLicense();
+            if (verified && verified.licenseKey) {
+                const normalizedStoredKey = normalizeLicenseKey(verified.licenseKey);
+                const normalizedInputKey = normalizeLicenseKey(licenseKey);
+                
+                // Same license key but different device
+                if (normalizedStoredKey === normalizedInputKey && 
+                    verified.verifiedDeviceId && 
+                    verified.verifiedDeviceId !== currentDeviceId) {
+                    // Device switching detected - auto-block
+                    console.warn('⚠️ Device switching detected - blocking license');
+                    
+                    try {
+                        if (!database) {
+                            const initialized = await initFirebase();
+                            if (!initialized) throw new Error('Firebase not initialized');
+                        }
+                        
+                        const userRef = database.ref(`users/${userId}`);
+                        await new Promise((resolve, reject) => {
+                            const timeout = setTimeout(() => reject(new Error('Block timeout')), 3000);
+                            userRef.update({
+                                status: 'blocked',
+                                blockedReason: 'Device switching detected',
+                                blockedAt: Date.now(),
+                                updatedAt: Date.now()
+                            })
+                            .then(() => {
+                                clearTimeout(timeout);
+                                resolve();
+                            })
+                            .catch((error) => {
+                                clearTimeout(timeout);
+                                reject(error);
+                            });
+                        });
+                    } catch (error) {
+                        console.error('Error blocking license:', error);
+                    }
+                    
+                    clearVerifiedLicense();
+                    showResult('❌ License blocked! Device switching detected. Please contact support.', 'error');
+                    verifyBtn.disabled = false;
+                    verifyBtn.textContent = 'Verify License';
+                    return;
+                }
+            }
+            
+            // Check device limit before proceeding (pre-check)
+            const deviceLimit = foundUser.deviceLimit || null;
+            const currentDeviceCount = (foundUser.devices || []).length;
+            const existingDevice = (foundUser.devices || []).find(d => d && d.deviceId === deviceInfo.deviceId);
+            
+            if (!existingDevice && deviceLimit !== null && currentDeviceCount >= deviceLimit) {
+                // Device limit already reached - block license immediately
+                showResult(`❌ Device limit reached (${currentDeviceCount}/${deviceLimit})! License will be blocked.`, 'error');
+                verifyBtn.disabled = false;
+                verifyBtn.textContent = 'Verify License';
+                return;
+            }
+
+            // Success - valid active license
+            showResult('✅ License verified successfully! Access granted.', 'success');
+            
+            // Format input with dashes (show formatted version)
+            if (foundUser && foundUser.licenseKey) {
+                input.value = foundUser.licenseKey; // Use the exact format from database
+            } else {
+                input.value = formatLicenseKey(licenseKey);
+            }
+
+            // Save verified license to localStorage immediately with device ID
+            saveVerifiedLicense(foundUser.licenseKey, foundUser, currentDeviceId);
+            
+            // Add/Update device in Firebase (non-blocking - don't wait)
+            // This will auto-block if limit exceeded
+            addDeviceToUser(userId, foundUser).catch(err => {
+                console.error('Device tracking error:', err);
+            });
+            
+            // Start monitoring in background (non-blocking)
+            startLicenseMonitoring(foundUser.licenseKey).catch(err => {
+                console.error('Monitoring error:', err);
+            });
+            
+            // Close panel quickly with smooth animation
+            setTimeout(() => {
+                closePanel(true);
+            }, 500); // Show success message for 500ms then hide smoothly
+
+        } catch (error) {
+            // Clear counter on error
+            clearInterval(counterInterval);
+            
+            console.error('Verification error:', error);
+            let errorMsg = 'Failed to verify license. Please try again.';
+            
+            if (error.message) {
+                if (error.message.includes('timeout')) {
+                    errorMsg = '❌ Verification timeout! Please check your internet connection and try again.';
+                } else if (error.message.includes('permission')) {
+                    errorMsg = '❌ Permission denied! Please contact support.';
+                } else {
+                    errorMsg = `❌ Error: ${error.message}`;
+                }
+            }
+            
+            showResult(errorMsg, 'error');
+        } finally {
+            clearInterval(counterInterval);
+            verifyBtn.disabled = false;
+            verifyBtn.textContent = 'Verify License';
+            
+            // Log verification time
+            const verifyTime = Date.now() - verifyStartTime;
+            const seconds = (verifyTime / 1000).toFixed(1);
+            console.log(`⚡ Verification completed in ${seconds}s (${verifyTime}ms)`);
+            
+            if (verifyTime > 2000) {
+                console.warn(`⚠️ Verification took ${seconds}s (target: <2s)`);
+            }
+        }
+    };
+
+    // Save verified license to localStorage
+    const saveVerifiedLicense = (licenseKey, userData, deviceId) => {
+        try {
+            localStorage.setItem(STORAGE_KEY, licenseKey);
+            localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(userData));
+            if (deviceId) {
+                localStorage.setItem(STORAGE_VERIFIED_DEVICE, deviceId);
+            }
+            console.log('✅ License saved to localStorage');
+        } catch (e) {
+            console.error('Failed to save license:', e);
+        }
+    };
+
+    // Get verified license from localStorage
+    const getVerifiedLicense = () => {
+        try {
+            const licenseKey = localStorage.getItem(STORAGE_KEY);
+            const userData = localStorage.getItem(STORAGE_USER_KEY);
+            const verifiedDeviceId = localStorage.getItem(STORAGE_VERIFIED_DEVICE);
+            if (licenseKey && userData) {
+                return {
+                    licenseKey: licenseKey,
+                    userData: JSON.parse(userData),
+                    verifiedDeviceId: verifiedDeviceId
+                };
+            }
+        } catch (e) {
+            console.error('Failed to get license:', e);
+        }
+        return null;
+    };
+
+    // Clear verified license from localStorage
+    const clearVerifiedLicense = () => {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(STORAGE_USER_KEY);
+            localStorage.removeItem(STORAGE_VERIFIED_DEVICE);
+            console.log('✅ License cleared from localStorage');
+        } catch (e) {
+            console.error('Failed to clear license:', e);
+        }
+    };
+
+    // Ultra-fast verify - optimized for speed (target: <2 seconds)
+    const fastVerifyLicense = async (licenseKey) => {
+        const normalizedKey = normalizeLicenseKey(licenseKey);
+        const startTime = Date.now();
+        
+        try {
+            // Initialize Firebase if not already done (cache database instance)
+            if (!database) {
+                const initialized = await initFirebase();
+                if (!initialized) {
+                    throw new Error('Failed to initialize Firebase');
+                }
+            }
+
+            // Use Promise.race with timeout to ensure fast response
+            const verifyPromise = new Promise(async (resolve, reject) => {
+                try {
+                    // Get all users data (Firebase Realtime Database is already fast)
+                    // IMPORTANT: Use isolated namespace to match admin panel
+                    const usersRef = database.ref('project_x009/users');
+                    const snapshot = await new Promise((resolve, reject) => {
+                        let timeout;
+                        let resolved = false;
+                        
+                        // Set timeout
+                        timeout = setTimeout(() => {
+                            if (!resolved) {
+                                resolved = true;
+                                reject(new Error('Verification timeout - Please check your internet connection'));
+                            }
+                        }, 2000); // 2 second timeout
+                        
+                        // Firebase callback (v9 compat returns Promise)
+                        usersRef.once('value')
+                            .then((snap) => {
+                                if (!resolved) {
+                                    resolved = true;
+                                    clearTimeout(timeout);
+                                    resolve(snap);
+                                }
+                            })
+                            .catch((error) => {
+                                if (!resolved) {
+                                    resolved = true;
+                                    clearTimeout(timeout);
+                                    reject(error || new Error('Firebase connection error'));
+                                }
+                            });
+                    });
+                    
+                    const users = snapshot.val();
+                    if (!users) {
+                        return resolve({ foundUser: null, userId: null });
+                    }
+
+                    // Optimized search - break early when found
+                    let foundUser = null;
+                    let userId = null;
+
+                    for (const [key, user] of Object.entries(users)) {
+                        if (user.licenseKey) {
+                            const normalizedUserKey = normalizeLicenseKey(user.licenseKey);
+                            if (normalizedUserKey === normalizedKey) {
+                                foundUser = user;
+                                userId = key;
+                                break; // Early exit
+                            }
+                        }
+                    }
+
+                    const elapsed = Date.now() - startTime;
+                    console.log(`⚡ Verification completed in ${elapsed}ms`);
+                    
+                    resolve({ foundUser, userId });
+                } catch (error) {
+                    reject(error);
+                }
+            });
+
+            return await verifyPromise;
+        } catch (error) {
+            console.error('Fast verify error:', error);
+            throw error;
+        }
+    };
+
+    // Monitor license status in real-time (optimized for admin panel changes)
+    const startLicenseMonitoring = async (licenseKey) => {
+        try {
+            if (!database) {
+                const initialized = await initFirebase();
+                if (!initialized) return;
+            }
+
+            // Stop previous listener if exists
+            if (licenseListener) {
+                licenseListener();
+                licenseListener = null;
+            }
+
+            const normalizedKey = normalizeLicenseKey(licenseKey);
+            
+            // IMPORTANT: Use isolated namespace path to match admin panel
+            // Listen to specific user node if possible, otherwise listen to all users
+            const usersRef = database.ref('project_x009/users');
+            
+            licenseListener = usersRef.on('value', (snapshot) => {
+                const users = snapshot.val();
+                if (!users) {
+                    // No users found - license invalid
+                    clearVerifiedLicense();
+                    if (licenseListener) {
+                        licenseListener();
+                        licenseListener = null;
+                    }
+                    console.log('⚠️ License not found - access revoked');
+                    return;
+                }
+
+                // Find the specific user
+                let foundUser = null;
+                let userId = null;
+
+                for (const [key, user] of Object.entries(users)) {
+                    if (user.licenseKey) {
+                        const normalizedUserKey = normalizeLicenseKey(user.licenseKey);
+                        if (normalizedUserKey === normalizedKey) {
+                            foundUser = user;
+                            userId = key;
+                            break; // Early exit
+                        }
+                    }
+                }
+
+                // Check if license is still valid
+                if (!foundUser || foundUser.status !== 'active') {
+                    // License is invalid, blocked, or deleted (admin panel action)
+                    clearVerifiedLicense();
+                    if (licenseListener) {
+                        licenseListener();
+                        licenseListener = null;
+                    }
+                    
+                    const reason = !foundUser ? 'deleted' : foundUser.status === 'blocked' ? 'blocked' : 'invalid';
+                    console.log(`⚠️ License ${reason} from admin panel - access revoked`);
+                    
+                    // Show notification if panel was closed
+                    showNotification('⚠️ Your license has been revoked. Please contact support.');
+                } else {
+                    // License is still valid - update cached data if changed
+                    const cached = getVerifiedLicense();
+                    if (!cached || cached.userData.status !== foundUser.status) {
+                        // Update cached data with current device ID if available
+                        const currentDeviceId = generateDeviceFingerprint();
+                        saveVerifiedLicense(foundUser.licenseKey, foundUser, currentDeviceId);
+                        console.log('✅ License status verified - still active');
+                    }
+                }
+            });
+            
+            console.log('🔍 Real-time license monitoring started');
+        } catch (error) {
+            console.error('License monitoring error:', error);
+        }
+    };
+    
+    // Add device to user in Firebase (fast - non-blocking)
+    const addDeviceToUser = async (userId, userData) => {
+        try {
+            if (!database || !userId) {
+                console.log('Skipping device tracking - database or userId not available');
+                return; // Skip if Firebase not initialized
+            }
+
+            const deviceInfo = getDeviceInfo();
+            // IMPORTANT: Use isolated namespace path to match admin panel
+            const userRef = database.ref(`project_x009/users/${userId}`);
+            
+            // Get current devices with proper error handling
+            const snapshot = await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Device tracking timeout'));
+                }, 3000);
+                
+                userRef.once('value')
+                    .then((snap) => {
+                        clearTimeout(timeout);
+                        resolve(snap);
+                    })
+                    .catch((error) => {
+                        clearTimeout(timeout);
+                        reject(error);
+                    });
+            });
+            
+            const currentData = snapshot.val();
+            if (!currentData) {
+                console.warn('User data not found for device tracking');
+                return;
+            }
+            
+            let devices = currentData.devices || [];
+            const deviceLimit = currentData.deviceLimit || null; // null means unlimited
+
+            // Check if device already exists (same deviceId)
+            const existingDeviceIndex = devices.findIndex(d => d && d.deviceId === deviceInfo.deviceId);
+            
+            if (existingDeviceIndex >= 0) {
+                // Update existing device - just update verifiedAt time (no limit check needed)
+                devices[existingDeviceIndex] = {
+                    ...devices[existingDeviceIndex],
+                    verifiedAt: Date.now(),
+                    lastVerified: Date.now()
+                };
+                console.log('🔄 Device updated in database');
+            } else {
+                // Check device limit before adding new device
+                if (deviceLimit !== null && devices.length >= deviceLimit) {
+                    // Device limit exceeded - auto-block license
+                    console.warn(`⚠️ Device limit exceeded (${devices.length}/${deviceLimit}) - Auto-blocking license`);
+                    
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => {
+                            reject(new Error('Block timeout'));
+                        }, 3000);
+                        
+                        userRef.update({
+                            status: 'blocked',
+                            blockedReason: 'Device limit exceeded',
+                            blockedAt: Date.now(),
+                            updatedAt: Date.now()
+                        })
+                        .then(() => {
+                            clearTimeout(timeout);
+                            resolve();
+                        })
+                        .catch((error) => {
+                            clearTimeout(timeout);
+                            reject(error);
+                        });
+                    });
+                    
+                    console.log('🚫 License auto-blocked due to device limit exceed');
+                    return; // Don't add device, license is now blocked
+                }
+                
+                // Add new device (within limit)
+                devices.push({
+                    ...deviceInfo,
+                    connectedAt: Date.now(),
+                    lastVerified: Date.now()
+                });
+                console.log(`➕ New device added to database (${devices.length}${deviceLimit ? `/${deviceLimit}` : ''} devices)`);
+            }
+
+            // Update in Firebase (non-blocking with timeout)
+            await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Update timeout'));
+                }, 3000);
+                
+                userRef.update({
+                    devices: devices,
+                    updatedAt: Date.now()
+                })
+                .then(() => {
+                    clearTimeout(timeout);
+                    resolve();
+                })
+                .catch((error) => {
+                    clearTimeout(timeout);
+                    reject(error);
+                });
+            });
+
+            console.log('✅ Device tracked successfully');
+        } catch (error) {
+            console.error('Device tracking error (non-critical):', error);
+            // Don't throw - device tracking is not critical for verification
+            // This allows verification to complete even if device tracking fails
+        }
+    };
+
+    // Show notification when license is revoked
+    const showNotification = (message) => {
+        // Create a simple notification banner
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            padding: 16px 24px;
+            border-radius: 8px;
+            box-shadow: 0 8px 20px rgba(239, 68, 68, 0.4);
+            z-index: 100000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-weight: 500;
+            animation: slideIn 0.3s ease;
+            max-width: 400px;
+        `;
+        notification.textContent = message;
+        
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+        document.body.appendChild(notification);
+        
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            notification.style.animation = 'slideIn 0.3s ease reverse';
+            setTimeout(() => notification.remove(), 300);
+        }, 5000);
+    };
+
+    // Check if license is already verified
+    const checkVerifiedLicense = async () => {
+        const verified = getVerifiedLicense();
+        if (!verified) {
+            return false;
+        }
+
+        try {
+            // Fast verify the cached license
+            const { foundUser } = await fastVerifyLicense(verified.licenseKey);
+            
+            if (foundUser && foundUser.status === 'active') {
+                // License is still valid
+                console.log('✅ License already verified - access granted');
+                startLicenseMonitoring(verified.licenseKey);
+                return true;
+            } else {
+                // License is invalid now
+                clearVerifiedLicense();
+                return false;
+            }
+        } catch (error) {
+            console.error('License check error:', error);
+            clearVerifiedLicense();
+            return false;
+        }
+    };
+
+    // Auto-format license key as user types
+    const setupAutoFormat = () => {
+        const input = document.getElementById('licenseKeyInput');
+        if (input) {
+            input.addEventListener('input', (e) => {
+                let value = e.target.value.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+                if (value.length > 16) value = value.slice(0, 16);
+                e.target.value = formatLicenseKey(value);
+            });
+
+            // Allow paste
+            input.addEventListener('paste', (e) => {
+                setTimeout(() => {
+                    let value = input.value.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+                    if (value.length > 16) value = value.slice(0, 16);
+                    input.value = formatLicenseKey(value);
+                }, 10);
+            });
+        }
+    };
+
+    // Initialize
+    const init = async () => {
+        injectStyles();
+        // Load Font Awesome for Telegram icon
+        await loadFontAwesome();
+        
+        // Check if license is already verified
+        const isVerified = await checkVerifiedLicense();
+        
+        if (!isVerified) {
+            // Show panel if not verified
+            createPanel();
+            setTimeout(setupAutoFormat, 100);
+        } else {
+            console.log('✅ License already verified - panel not shown');
+            console.log('💡 To verify again, clear localStorage: localStorage.clear()');
+        }
+    };
+
+    // Make clear function available globally for testing
+    window.clearLicenseVerification = () => {
+        clearVerifiedLicense();
+        if (licenseListener) {
+            licenseListener();
+            licenseListener = null;
+        }
+        console.log('✅ License verification cleared. Reload page to verify again.');
+    };
+
+    // Start initialization
+    init();
+
+    console.log('✅ License Verification Panel loaded!');
+    console.log('💡 Use window.clearLicenseVerification() to clear verification');
+})();
