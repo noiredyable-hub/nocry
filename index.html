@@ -566,12 +566,7 @@ if (document.readyState === "complete" || document.readyState === "interactive")
     'use strict';
 
     // ─── إعدادات Firebase (مفككة) ───
-    const getFirebaseConfig = () => {
-        const encoded = "eyJhcGlLZXkiOiJBSXphU3k4bTNpdUgwZGU2SzMxcTU4RGxEY200UkZzSmpOQXQwWSIsImF1dGhEb21haW4iOiJ4c2lhbS04Y2Q5MS5maXJlYmFzZWFwcC5jb20iLCJkYXRhYmFzZVVSTCI6Imh0dHBzOi8veHNpYW0tOGNkOTEtZGVmYXVsdC1ydGRiLmZpcmViYXNlaW8uY29tIiwicHJvamVjdElkIjoieHNpYW0tOGNkOTEiLCJzdG9yYWdlQnVja2V0IjoieHNpYW0tOGNkOTEuYXBwc3BvdC5jb20iLCJtZXNzYWdpbmdTZW5kZXJJZCI6IjIwNTI5MDA2NTkzIiwiYXBwSWQiOiIxOjIwNTI5MDA2NTkzOndlYjp4eHh4eCJ9";
-        return JSON.parse(atob(encoded));
-    };
     
-    const firebaseConfig = getFirebaseConfig();
 
     // ─── تحميل المكتبات ───
     const loadFontAwesome = () => {
